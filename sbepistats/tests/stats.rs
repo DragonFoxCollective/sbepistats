@@ -6,7 +6,7 @@ fn app() -> App {
     app.add_plugins((MinimalPlugins, StatsPlugin))
         .add_stat_type::<Speed>()
         .add_stat_modifier_add::<Speed, SpeedBoost>()
-        .add_stat_modifier_add::<Speed, SpeedBooster>()
+        .add_stat_modifier_mul::<Speed, SpeedBooster>()
         .add_stat_type::<PowerLevel>()
         .add_stat_modifier_add::<PowerLevel, PowerUp>();
     app
@@ -27,9 +27,9 @@ impl StatModifierAdd<Speed> for SpeedBoost {
 #[derive(Component)]
 struct SpeedBooster;
 
-impl StatModifierAdd<Speed> for SpeedBooster {
-    fn add(&self) -> f32 {
-        0.3
+impl StatModifierMul<Speed> for SpeedBooster {
+    fn mul_after(&self) -> f32 {
+        0.2
     }
 }
 
@@ -83,7 +83,7 @@ fn f32_stat_with_two_modifier() {
         .spawn((Stat::<Speed>::new(1.0), SpeedBoost, SpeedBooster));
     app.update();
     assert_eq!(
-        1.5,
+        1.44,
         app.world_mut()
             .query::<&Stat::<Speed>>()
             .single(app.world())

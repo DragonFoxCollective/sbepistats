@@ -79,8 +79,20 @@ impl<T: StatType<DataType: Clone>> Stat<T> {
     }
 }
 
-pub trait StatModifierAdd<T: StatType<DataType: Add>> {
-    fn add(&self) -> T::DataType;
+pub trait StatModifierAdd<T: StatType<DataType: Add + Zero>> {
+    fn add(&self) -> T::DataType {
+        Zero::zero()
+    }
+}
+
+pub trait StatModifierMul<T: StatType<DataType: Add + Zero>> {
+    fn mul_before(&self) -> T::DataType {
+        Zero::zero()
+    }
+
+    fn mul_after(&self) -> T::DataType {
+        Zero::zero()
+    }
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
@@ -93,26 +105,55 @@ pub enum StatsSystems {
 fn clear_stat<T: StatType<DataType: Clone + Send + Sync + 'static> + Send + Sync + 'static>(
     mut stats: Query<&mut Stat<T>>,
 ) {
-    println!("clearing {}", ShortName::of::<T>());
     for mut stat in stats.iter_mut() {
         stat.clear();
     }
 }
 
 fn apply_add<
-    T: StatType<DataType: std::fmt::Debug + Zero + Add + Clone + Send + Sync + 'static>
+    T: StatType<DataType: Zero + Add + Clone + Send + Sync + 'static> + Send + Sync + 'static,
+>(
+    mut stats: Query<&mut Stat<T>>,
+) {
+    for mut stat in stats.iter_mut() {
+        stat.running_total = stat
+            .running_total
+            .clone()
+            .add(stat.running_op_total.clone());
+        stat.running_op_total = Zero::zero();
+    }
+}
+
+fn apply_mul_before<
+    T: StatType<DataType: Zero + One + Add + Mul + Clone + Send + Sync + 'static>
         + Send
         + Sync
         + 'static,
 >(
     mut stats: Query<&mut Stat<T>>,
 ) {
-    println!("starting apply {}", ShortName::of::<T>());
     for mut stat in stats.iter_mut() {
         stat.running_total = stat
             .running_total
             .clone()
-            .add(stat.running_op_total.clone());
+            .mul(T::DataType::one().add(stat.running_op_total.clone()));
+        stat.running_op_total = Zero::zero();
+    }
+}
+
+fn apply_mul_after<
+    T: StatType<DataType: Zero + One + Add + Mul + Clone + Send + Sync + 'static>
+        + Send
+        + Sync
+        + 'static,
+>(
+    mut stats: Query<&mut Stat<T>>,
+) {
+    for mut stat in stats.iter_mut() {
+        stat.running_total = stat
+            .running_total
+            .clone()
+            .mul(T::DataType::one().add(stat.running_op_total.clone()));
         stat.running_op_total = Zero::zero();
     }
 }
@@ -131,6 +172,17 @@ pub trait AppExt {
     >(
         &mut self,
     ) -> &mut Self;
+
+    fn add_stat_modifier_mul<
+        T: StatType<
+                DataType: std::fmt::Debug + Zero + One + Add + Mul + Clone + Send + Sync + 'static,
+            > + Send
+            + Sync
+            + 'static,
+        Modifier: StatModifierMul<T> + Component,
+    >(
+        &mut self,
+    ) -> &mut Self;
 }
 
 impl AppExt for App {
@@ -144,10 +196,7 @@ impl AppExt for App {
     }
 
     fn add_stat_modifier_add<
-        T: StatType<DataType: std::fmt::Debug + Zero + Add + Clone + Send + Sync + 'static>
-            + Send
-            + Sync
-            + 'static,
+        T: StatType<DataType: Zero + Add + Clone + Send + Sync + 'static> + Send + Sync + 'static,
         Modifier: StatModifierAdd<T> + Component,
     >(
         &mut self,
@@ -162,6 +211,39 @@ impl AppExt for App {
                 })
                 .in_set(StatsSystems::Op(DataTypeOp::Add)),
                 apply_add::<T>.in_set(StatsSystems::Apply(DataTypeOp::Add)),
+            ),
+        );
+        self
+    }
+
+    fn add_stat_modifier_mul<
+        T: StatType<DataType: Zero + One + Add + Mul + Clone + Send + Sync + 'static>
+            + Send
+            + Sync
+            + 'static,
+        Modifier: StatModifierMul<T> + Component,
+    >(
+        &mut self,
+    ) -> &mut Self {
+        self.add_systems(
+            PreUpdate,
+            (
+                (move |mut stats: Query<(&mut Stat<T>, &Modifier)>| {
+                    for (mut stat, modifier) in stats.iter_mut() {
+                        stat.running_op_total =
+                            stat.running_op_total.clone().add(modifier.mul_before());
+                    }
+                })
+                .in_set(StatsSystems::Op(DataTypeOp::MulBefore)),
+                apply_mul_before::<T>.in_set(StatsSystems::Apply(DataTypeOp::MulBefore)),
+                (move |mut stats: Query<(&mut Stat<T>, &Modifier)>| {
+                    for (mut stat, modifier) in stats.iter_mut() {
+                        stat.running_op_total =
+                            stat.running_op_total.clone().add(modifier.mul_after());
+                    }
+                })
+                .in_set(StatsSystems::Op(DataTypeOp::MulAfter)),
+                apply_mul_after::<T>.in_set(StatsSystems::Apply(DataTypeOp::MulAfter)),
             ),
         );
         self
