@@ -1,5 +1,10 @@
 use bevy::prelude::*;
+#[cfg(feature = "bevy_auto_plugin")]
+pub use bevy_auto_plugin::*;
 pub use sbepistats_derive::*;
+
+#[cfg(feature = "bevy_auto_plugin")]
+mod bevy_auto_plugin;
 
 pub trait StatType {
     type DataType;
@@ -164,19 +169,15 @@ pub trait AppExt {
     ) -> &mut Self;
 
     fn add_stat_modifier_add<
-        T: StatType<DataType: std::fmt::Debug + Zero + Add + Clone + Send + Sync + 'static>
-            + Send
-            + Sync
-            + 'static,
+        T: StatType<DataType: Zero + Add + Clone + Send + Sync + 'static> + Send + Sync + 'static,
         Modifier: StatModifierAdd<T> + Component,
     >(
         &mut self,
     ) -> &mut Self;
 
     fn add_stat_modifier_mul<
-        T: StatType<
-                DataType: std::fmt::Debug + Zero + One + Add + Mul + Clone + Send + Sync + 'static,
-            > + Send
+        T: StatType<DataType: Zero + One + Add + Mul + Clone + Send + Sync + 'static>
+            + Send
             + Sync
             + 'static,
         Modifier: StatModifierMul<T> + Component,
