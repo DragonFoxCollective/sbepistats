@@ -79,6 +79,10 @@ impl<T: StatType<DataType: Clone>> Stat<T> {
     }
 }
 
+pub trait StatModifierAdd<T: StatType<DataType: Add>> {
+    fn add(&self) -> T::DataType;
+}
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub enum StatsSystems {
     Clear,
@@ -123,10 +127,9 @@ pub trait AppExt {
             + Send
             + Sync
             + 'static,
-        Modifier: Component + 'static,
+        Modifier: StatModifierAdd<T> + Component,
     >(
         &mut self,
-        func: impl Fn(&Modifier) -> T::DataType + Send + Sync + 'static,
     ) -> &mut Self;
 }
 
@@ -145,17 +148,16 @@ impl AppExt for App {
             + Send
             + Sync
             + 'static,
-        Modifier: Component + 'static,
+        Modifier: StatModifierAdd<T> + Component,
     >(
         &mut self,
-        func: impl Fn(&Modifier) -> T::DataType + Send + Sync + 'static,
     ) -> &mut Self {
         self.add_systems(
             PreUpdate,
             (
                 (move |mut stats: Query<(&mut Stat<T>, &Modifier)>| {
                     for (mut stat, modifier) in stats.iter_mut() {
-                        stat.running_op_total = stat.running_op_total.clone().add(func(modifier));
+                        stat.running_op_total = stat.running_op_total.clone().add(modifier.add());
                     }
                 })
                 .in_set(StatsSystems::Op(DataTypeOp::Add)),

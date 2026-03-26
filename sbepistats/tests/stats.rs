@@ -5,10 +5,10 @@ fn app() -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, StatsPlugin))
         .add_stat_type::<Speed>()
-        .add_stat_modifier_add::<Speed, SpeedBoost>(|_| 0.2)
-        .add_stat_modifier_add::<Speed, SpeedBooster>(|_| 0.3)
+        .add_stat_modifier_add::<Speed, SpeedBoost>()
+        .add_stat_modifier_add::<Speed, SpeedBooster>()
         .add_stat_type::<PowerLevel>()
-        .add_stat_modifier_add::<PowerLevel, PowerUp>(|_| 1);
+        .add_stat_modifier_add::<PowerLevel, PowerUp>();
     app
 }
 
@@ -18,8 +18,20 @@ struct Speed;
 #[derive(Component)]
 struct SpeedBoost;
 
+impl StatModifierAdd<Speed> for SpeedBoost {
+    fn add(&self) -> f32 {
+        0.2
+    }
+}
+
 #[derive(Component)]
 struct SpeedBooster;
+
+impl StatModifierAdd<Speed> for SpeedBooster {
+    fn add(&self) -> f32 {
+        0.3
+    }
+}
 
 #[derive(StatType)]
 #[stat_type(u32)]
@@ -27,6 +39,12 @@ struct PowerLevel;
 
 #[derive(Component)]
 struct PowerUp;
+
+impl StatModifierAdd<PowerLevel> for PowerUp {
+    fn add(&self) -> u32 {
+        1
+    }
+}
 
 #[test]
 fn f32_stat_without_modifier() {
