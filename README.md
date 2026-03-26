@@ -7,7 +7,7 @@ A Minecraft-inspired stat system for Bevy.
 
 ## Getting started
 
-Check the [docs](https://docs.rs/sbepistats)!
+Check the [docs](https://docs.rs/sbepistats) and [tests](https://github.com/DragonFoxCollective/sbepistats/tree/main/sbepistats/tests)!
 
 ## Bevy compatibility
 
