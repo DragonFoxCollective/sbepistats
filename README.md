@@ -13,4 +13,4 @@ Check the [docs](https://docs.rs/sbepistats) and [tests](https://github.com/Drag
 
 | bevy  | sbepistats |
 |-------|------------|
-| 0.18  | 0.1        |
+| 0.18  | 0.1, 0.2   |

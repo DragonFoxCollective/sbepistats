@@ -1,8 +1,7 @@
 //! A Minecraft-inspired stat system for Bevy.
 //!
-//! To get started, add the [`StatsPlugin`] plugin to your app.
-//! Then, derive [`StatType`] on a struct and register it to your app with [`AppExt::add_stat_type`].
-//! Finally, impl [`StatModifierAdd`] or [`StatModifierMul`] on a component and
+//! To get started, derive [`StatType`] on a struct and register it to your app with [`AppExt::add_stat_type`].
+//! Then, impl [`StatModifierAdd`] or [`StatModifierMul`] on a component and
 //! register it to your app with [`AppExt::add_stat_modifier_add`] or [`AppExt::add_stat_modifier_mul`].
 //!
 //! To use the stats, add a [`Stat`] component to an entity, and any stat modifiers added to it will be reflected in [`Stat::total`].
@@ -10,7 +9,10 @@
 //! Stat datatypes are flexible, hence the separation of [`Add`] and [`Mul`]. If you need multiplication for a datatype that either
 //! can't multiply or does it in an unwanted way, consider using a wrapper type. At minimum, a stat datatype requires [`Add`].
 //!
-//! If you're using [`bevy_auto_plugin`](::bevy_auto_plugin), the build hooks [`StatTypeHook`], [`StatModifierAddHook`], and [`StatModifierMulHook`] are available.
+//! If you need something more comprehensive than a simple member of your modifier, you can add a system directly to [`StatSystems::Op`]
+//! and register the type of operation with [`AppExt::configure_stat_type_add`] or [`AppExt::configure_stat_type_mul`].
+//!
+//! If you're using [`bevy_auto_plugin`](::bevy_auto_plugin), build hooks such as [`StatTypeHook`], [`StatModifierAddHook`], and [`StatModifierMulHook`] are available.
 //!
 //! # Example
 //!
@@ -20,7 +22,7 @@
 //! #
 //! fn main() {
 //!     App::new()
-//!         .add_plugins((DefaultPlugins, StatsPlugin))
+//!         .add_plugins(DefaultPlugins)
 //!         .add_stat_type::<Speed>()
 //!         .add_stat_modifier_add::<Speed, SpeedBoost>()
 //!         .add_systems(Startup, |mut commands: Commands| {
@@ -41,9 +43,12 @@
 //! }
 //! ```
 
+use std::marker::PhantomData;
+
 use bevy::prelude::*;
 #[cfg(feature = "bevy_auto_plugin")]
 pub use bevy_auto_plugin::*;
+use derive_where::derive_where;
 
 /// Derive macro for [`StatType`].
 ///
@@ -117,7 +122,7 @@ impl<T: std::ops::Mul<T, Output = T> + num_traits::One> Mul for T {
 
 /// Representations of possible stat modifier operations.
 ///
-/// Used in [`StatsSystems`].
+/// Used in [`StatSystems`].
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum DataTypeOp {
     Add,
@@ -154,6 +159,13 @@ impl<T: StatType<DataType: Clone + Add>> Stat<T> {
             running_total: base,
             running_op_total: Add::zero(),
         }
+    }
+
+    /// Adds `rhs` to the current operator total.
+    ///
+    /// Should only be called during [`StatSystems::Op`].
+    pub fn add_modifier(&mut self, rhs: T::DataType) {
+        self.running_op_total = self.running_op_total.clone().add(rhs);
     }
 }
 
@@ -239,12 +251,22 @@ pub trait StatModifierMul<T: StatType<DataType: Add + Mul>> {
 
 /// System ordering for stat systems.
 ///
-/// Set up in [`StatsPlugin`].
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
-pub enum StatsSystems {
+/// Runs in [`PreUpdate`].
+#[derive(SystemSet)]
+#[derive_where(Debug, Hash, PartialEq, Eq, Clone)]
+pub enum StatSystems<T> {
+    /// Clears stat totals.
     Clear,
+    /// Sums up modifiers for one [`DataTypeOp`].
+    ///
+    /// Use [`Stat::add_modifier`] here.
     Op(DataTypeOp),
+    /// Applies an operator's total to the stat total.
     Apply(DataTypeOp),
+    /// Marks the end of all stat systems.
+    Done,
+    /// PhantomData holder.
+    _PhantomData(PhantomData<T>),
 }
 
 fn clear_stat<T: StatType<DataType: Clone + Send + Sync + 'static> + Send + Sync + 'static>(
@@ -302,7 +324,16 @@ pub trait AppExt {
         &mut self,
     ) -> &mut Self;
 
+    /// Registers a [`StatType`] to apply [`DataTypeOp::Add`].
+    fn configure_stat_type_add<
+        T: StatType<DataType: Add + Clone + Send + Sync + 'static> + Send + Sync + 'static,
+    >(
+        &mut self,
+    ) -> &mut Self;
+
     /// Register a [`StatModifierAdd`].
+    ///
+    /// Automatically calls [`AppExt::configure_stat_type_add`].
     fn add_stat_modifier_add<
         T: StatType<DataType: Add + Clone + Send + Sync + 'static> + Send + Sync + 'static,
         Modifier: StatModifierAdd<T> + Component,
@@ -310,10 +341,27 @@ pub trait AppExt {
         &mut self,
     ) -> &mut Self;
 
+    /// Registers a [`StatType`] to apply [`DataTypeOp::MulBefore`] and [`DataTypeOp::MulAfter`].
+    fn configure_stat_type_mul<
+        T: StatType<DataType: Add + Mul + Clone + Send + Sync + 'static> + Send + Sync + 'static,
+    >(
+        &mut self,
+    ) -> &mut Self;
+
     /// Register a [`StatModifierMul`].
+    ///
+    /// Automatically calls [`AppExt::configure_stat_type_mul`].
     fn add_stat_modifier_mul<
         T: StatType<DataType: Add + Mul + Clone + Send + Sync + 'static> + Send + Sync + 'static,
         Modifier: StatModifierMul<T> + Component,
+    >(
+        &mut self,
+    ) -> &mut Self;
+
+    /// Order the calculation of stats such that `TBefore` is calculated before `TAfter`.
+    fn order_stats<
+        TBefore: StatType + Send + Sync + 'static,
+        TAfter: StatType + Send + Sync + 'static,
     >(
         &mut self,
     ) -> &mut Self;
@@ -325,7 +373,33 @@ impl AppExt for App {
     >(
         &mut self,
     ) -> &mut Self {
-        self.add_systems(PreUpdate, clear_stat::<T>.in_set(StatsSystems::Clear));
+        self.configure_sets(
+            PreUpdate,
+            (
+                StatSystems::<T>::Clear,
+                StatSystems::<T>::Op(DataTypeOp::MulBefore),
+                StatSystems::<T>::Apply(DataTypeOp::MulBefore),
+                StatSystems::<T>::Op(DataTypeOp::Add),
+                StatSystems::<T>::Apply(DataTypeOp::Add),
+                StatSystems::<T>::Op(DataTypeOp::MulAfter),
+                StatSystems::<T>::Apply(DataTypeOp::MulAfter),
+                StatSystems::<T>::Done,
+            )
+                .chain(),
+        );
+        self.add_systems(PreUpdate, clear_stat::<T>.in_set(StatSystems::<T>::Clear));
+        self
+    }
+
+    fn configure_stat_type_add<
+        T: StatType<DataType: Add + Clone + Send + Sync + 'static> + Send + Sync + 'static,
+    >(
+        &mut self,
+    ) -> &mut Self {
+        self.add_systems(
+            PreUpdate,
+            apply_add::<T>.in_set(StatSystems::<T>::Apply(DataTypeOp::Add)),
+        );
         self
     }
 
@@ -335,16 +409,28 @@ impl AppExt for App {
     >(
         &mut self,
     ) -> &mut Self {
+        self.configure_stat_type_add::<T>().add_systems(
+            PreUpdate,
+            (move |mut stats: Query<(&mut Stat<T>, &Modifier)>| {
+                for (mut stat, modifier) in stats.iter_mut() {
+                    stat.add_modifier(modifier.add());
+                }
+            })
+            .in_set(StatSystems::<T>::Op(DataTypeOp::Add)),
+        );
+        self
+    }
+
+    fn configure_stat_type_mul<
+        T: StatType<DataType: Add + Mul + Clone + Send + Sync + 'static> + Send + Sync + 'static,
+    >(
+        &mut self,
+    ) -> &mut Self {
         self.add_systems(
             PreUpdate,
             (
-                (move |mut stats: Query<(&mut Stat<T>, &Modifier)>| {
-                    for (mut stat, modifier) in stats.iter_mut() {
-                        stat.running_op_total = stat.running_op_total.clone().add(modifier.add());
-                    }
-                })
-                .in_set(StatsSystems::Op(DataTypeOp::Add)),
-                apply_add::<T>.in_set(StatsSystems::Apply(DataTypeOp::Add)),
+                apply_mul_before::<T>.in_set(StatSystems::<T>::Apply(DataTypeOp::MulBefore)),
+                apply_mul_after::<T>.in_set(StatSystems::<T>::Apply(DataTypeOp::MulAfter)),
             ),
         );
         self
@@ -356,50 +442,36 @@ impl AppExt for App {
     >(
         &mut self,
     ) -> &mut Self {
-        self.add_systems(
+        self.configure_stat_type_mul::<T>().add_systems(
             PreUpdate,
             (
                 (move |mut stats: Query<(&mut Stat<T>, &Modifier)>| {
                     for (mut stat, modifier) in stats.iter_mut() {
-                        stat.running_op_total =
-                            stat.running_op_total.clone().add(modifier.mul_before());
+                        stat.add_modifier(modifier.mul_before());
                     }
                 })
-                .in_set(StatsSystems::Op(DataTypeOp::MulBefore)),
-                apply_mul_before::<T>.in_set(StatsSystems::Apply(DataTypeOp::MulBefore)),
+                .in_set(StatSystems::<T>::Op(DataTypeOp::MulBefore)),
                 (move |mut stats: Query<(&mut Stat<T>, &Modifier)>| {
                     for (mut stat, modifier) in stats.iter_mut() {
-                        stat.running_op_total =
-                            stat.running_op_total.clone().add(modifier.mul_after());
+                        stat.add_modifier(modifier.mul_after());
                     }
                 })
-                .in_set(StatsSystems::Op(DataTypeOp::MulAfter)),
-                apply_mul_after::<T>.in_set(StatsSystems::Apply(DataTypeOp::MulAfter)),
+                .in_set(StatSystems::<T>::Op(DataTypeOp::MulAfter)),
             ),
         );
         self
     }
-}
 
-/// Plugin required for stats to work.
-///
-/// Sets up [`StatsPlugin`].
-pub struct StatsPlugin;
-
-impl Plugin for StatsPlugin {
-    fn build(&self, app: &mut App) {
-        app.configure_sets(
+    fn order_stats<
+        TBefore: StatType + Send + Sync + 'static,
+        TAfter: StatType + Send + Sync + 'static,
+    >(
+        &mut self,
+    ) -> &mut Self {
+        self.configure_sets(
             PreUpdate,
-            (
-                StatsSystems::Clear,
-                StatsSystems::Op(DataTypeOp::MulBefore),
-                StatsSystems::Apply(DataTypeOp::MulBefore),
-                StatsSystems::Op(DataTypeOp::Add),
-                StatsSystems::Apply(DataTypeOp::Add),
-                StatsSystems::Op(DataTypeOp::MulAfter),
-                StatsSystems::Apply(DataTypeOp::MulAfter),
-            )
-                .chain(),
+            StatSystems::<TBefore>::Done.before(StatSystems::<TAfter>::Clear),
         );
+        self
     }
 }

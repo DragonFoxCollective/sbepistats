@@ -3,7 +3,7 @@ use sbepistats::*;
 
 fn app() -> App {
     let mut app = App::new();
-    app.add_plugins((MinimalPlugins, StatsPlugin))
+    app.add_plugins(MinimalPlugins)
         .add_stat_type::<Speed>()
         .add_stat_modifier_add::<Speed, SpeedBoost>()
         .add_stat_modifier_mul::<Speed, SpeedBooster>()

@@ -4,10 +4,11 @@ use std::marker::PhantomData;
 
 use bevy::prelude::*;
 use bevy_auto_plugin::prelude::*;
+use derive_where::derive_where;
 
 use crate::{Add, AppExt, Mul, StatModifierAdd, StatModifierMul, StatType};
 
-/// [`bevy_auto_plugin`] build hook for [`StatType`].
+/// [`bevy_auto_plugin`] build hook for [`AppExt::add_stat_type`].
 ///
 /// ```rust
 /// # use bevy_auto_plugin::prelude::*;
@@ -31,7 +32,32 @@ impl<T: StatType<DataType: Clone + Send + Sync + 'static> + Send + Sync + 'stati
     }
 }
 
-/// [`bevy_auto_plugin`] build hook for [`StatModifierAdd`].
+/// [`bevy_auto_plugin`] build hook for [`AppExt::configure_stat_type_add`].
+///
+/// ```rust
+/// # use bevy_auto_plugin::prelude::*;
+/// # use sbepistats::*;
+/// #
+/// # #[derive(AutoPlugin)]
+/// # #[auto_plugin(impl_plugin_trait)]
+/// # struct MyPlugin;
+/// #
+/// #[derive(StatType)]
+/// #[auto_plugin_build_hook(plugin = MyPlugin, hook = StatTypeHook)]
+/// #[auto_plugin_build_hook(plugin = MyPlugin, hook = ConfigureStatTypeAddHook)]
+/// struct MyStat;
+/// ```
+pub struct ConfigureStatTypeAddHook;
+
+impl<T: StatType<DataType: Add + Clone + Send + Sync + 'static> + Send + Sync + 'static>
+    AutoPluginBuildHook<T> for ConfigureStatTypeAddHook
+{
+    fn on_build(&self, app: &mut App) {
+        app.configure_stat_type_add::<T>();
+    }
+}
+
+/// [`bevy_auto_plugin`] build hook for [`AppExt::add_stat_modifier_add`].
 ///
 /// ```rust
 /// # use bevy::prelude::*;
@@ -56,12 +82,8 @@ impl<T: StatType<DataType: Clone + Send + Sync + 'static> + Send + Sync + 'stati
 ///     }
 /// }
 /// ```
+#[derive_where(Default)]
 pub struct StatModifierAddHook<T>(PhantomData<T>);
-impl<T> Default for StatModifierAddHook<T> {
-    fn default() -> Self {
-        Self(default())
-    }
-}
 
 impl<
     T: StatModifierAdd<S> + Component + 'static,
@@ -73,7 +95,32 @@ impl<
     }
 }
 
-/// [`bevy_auto_plugin`] build hook for [`StatModifierMul`].
+/// [`bevy_auto_plugin`] build hook for [`AppExt::configure_stat_type_mul`].
+///
+/// ```rust
+/// # use bevy_auto_plugin::prelude::*;
+/// # use sbepistats::*;
+/// #
+/// # #[derive(AutoPlugin)]
+/// # #[auto_plugin(impl_plugin_trait)]
+/// # struct MyPlugin;
+/// #
+/// #[derive(StatType)]
+/// #[auto_plugin_build_hook(plugin = MyPlugin, hook = StatTypeHook)]
+/// #[auto_plugin_build_hook(plugin = MyPlugin, hook = ConfigureStatTypeMulHook)]
+/// struct MyStat;
+/// ```
+pub struct ConfigureStatTypeMulHook;
+
+impl<T: StatType<DataType: Mul + Add + Clone + Send + Sync + 'static> + Send + Sync + 'static>
+    AutoPluginBuildHook<T> for ConfigureStatTypeMulHook
+{
+    fn on_build(&self, app: &mut App) {
+        app.configure_stat_type_mul::<T>();
+    }
+}
+
+/// [`bevy_auto_plugin`] build hook for [`AppExt::add_stat_modifier_mul`].
 ///
 /// ```rust
 /// # use bevy::prelude::*;
@@ -98,12 +145,8 @@ impl<
 ///     }
 /// }
 /// ```
+#[derive_where(Default)]
 pub struct StatModifierMulHook<T>(PhantomData<T>);
-impl<T> Default for StatModifierMulHook<T> {
-    fn default() -> Self {
-        Self(default())
-    }
-}
 
 impl<
     T: StatModifierMul<S> + Component + 'static,
@@ -112,5 +155,63 @@ impl<
 {
     fn on_build(&self, app: &mut App) {
         app.add_stat_modifier_mul::<S, T>();
+    }
+}
+
+/// [`bevy_auto_plugin`] build hook for [`AppExt::order_stats`].
+///
+/// ```rust
+/// # use bevy_auto_plugin::prelude::*;
+/// # use sbepistats::*;
+/// #
+/// # #[derive(AutoPlugin)]
+/// # #[auto_plugin(impl_plugin_trait)]
+/// # struct MyPlugin;
+/// #
+/// # #[derive(StatType)]
+/// # struct StatBeforeMyStat;
+/// #
+/// #[derive(StatType)]
+/// #[auto_plugin_build_hook(plugin = MyPlugin, hook = StatTypeHook)]
+/// #[auto_plugin_build_hook(plugin = MyPlugin, hook = OrderStatAfterHook::<StatBeforeMyStat>::default())]
+/// struct MyStat;
+/// ```
+#[derive_where(Default)]
+pub struct OrderStatAfterHook<T>(PhantomData<T>);
+
+impl<TBefore: StatType + Send + Sync + 'static, TAfter: StatType + Send + Sync + 'static>
+    AutoPluginBuildHook<TAfter> for OrderStatAfterHook<TBefore>
+{
+    fn on_build(&self, app: &mut App) {
+        app.order_stats::<TBefore, TAfter>();
+    }
+}
+
+/// [`bevy_auto_plugin`] build hook for [`AppExt::order_stats`].
+///
+/// ```rust
+/// # use bevy_auto_plugin::prelude::*;
+/// # use sbepistats::*;
+/// #
+/// # #[derive(AutoPlugin)]
+/// # #[auto_plugin(impl_plugin_trait)]
+/// # struct MyPlugin;
+/// #
+/// # #[derive(StatType)]
+/// # struct StatAfterMyStat;
+/// #
+/// #[derive(StatType)]
+/// #[auto_plugin_build_hook(plugin = MyPlugin, hook = StatTypeHook)]
+/// #[auto_plugin_build_hook(plugin = MyPlugin, hook = OrderStatBeforeHook::<StatAfterMyStat>::default())]
+/// struct MyStat;
+/// ```
+#[derive_where(Default)]
+pub struct OrderStatBeforeHook<T>(PhantomData<T>);
+
+impl<TBefore: StatType + Send + Sync + 'static, TAfter: StatType + Send + Sync + 'static>
+    AutoPluginBuildHook<TBefore> for OrderStatBeforeHook<TAfter>
+{
+    fn on_build(&self, app: &mut App) {
+        app.order_stats::<TBefore, TAfter>();
     }
 }
