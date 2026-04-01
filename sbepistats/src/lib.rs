@@ -249,7 +249,11 @@ pub trait StatModifierMul<T: StatType<DataType: Add + Mul>> {
     }
 }
 
-/// System ordering for stat systems.
+/// [`SystemSet`] containing all stat systems.
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+pub struct StatsSystems;
+
+/// [`SystemSet`] for each stat's system.
 ///
 /// Runs in [`PreUpdate`].
 #[derive(SystemSet)]
@@ -385,7 +389,8 @@ impl AppExt for App {
                 StatSystems::<T>::Apply(DataTypeOp::MulAfter),
                 StatSystems::<T>::Done,
             )
-                .chain(),
+                .chain()
+                .in_set(StatsSystems),
         );
         self.add_systems(PreUpdate, clear_stat::<T>.in_set(StatSystems::<T>::Clear));
         self
